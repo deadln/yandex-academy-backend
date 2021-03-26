@@ -96,8 +96,11 @@ class Controller(Resource):
                 return "Bad request", 400
 
             http_200 = {'orders': []}
+            max_weight = {'foot': 10, 'bike': 15, 'car': 50}
+            # Подбор заказов
             for order in orders:
-                if order['region'] in assigned_courier['regions']:  # TODO: Сделать проверку по весу груза
+                if order['region'] in assigned_courier['regions'] and \
+                        order['weight'] <= max_weight[assigned_courier['courier_type']]:
                     assigned_order = None
                     for courier_time in assigned_courier['working_hours']:
                         for delivery_time in order['delivery_hours']:
@@ -113,16 +116,16 @@ class Controller(Resource):
                                     delivery_time_start < courier_time_end < delivery_time_end:
                                 assigned_order = order
                                 break
-                        if assigned_courier is not None:
+                        if assigned_order is not None:
                             break
-                    if assigned_courier is not None:
+                    if assigned_order is not None:
                         assigned_courier['orders'].append(assigned_order)
                         http_200['orders'].append({'id': assigned_order['order_id']})
-            http_200['assign_time'] = datetime.now().isoformat('T')[:-4] + 'Z'
+            if len(http_200['orders']) > 0:
+                http_200['assign_time'] = datetime.now().isoformat('T')[:-4] + 'Z'
             return json.dumps(http_200), 200
 
-
-        elif request_type == 'couriers': # Добавление курьера
+        elif request_type == 'couriers':  # Добавление курьера
             http_201 = {'couriers': []}
             http_400 = {'validation_error': {'couriers': []}}
 
