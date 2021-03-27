@@ -1,82 +1,24 @@
 from flask import Flask
-from flask import request, jsonify
-from flask_restful import Api, Resource, reqparse
+from flask import request
+from flask_restful import Api, Resource
 import json
-import re
 from datetime import datetime
+
+from validation_functions import *
 
 app = Flask(__name__)
 api = Api(app)
 
-couriers = [] # Курьеры
+couriers = []  # Курьеры
 
-orders = [] # Заказы
+orders = []  # Заказы
 
-def check_courier_fields(item): # Проверка валидности полей курьера
-    # Проверка на наличие полей
-    courier_fields = ["courier_id", "courier_type", "regions", "working_hours"]
-    for key in item.keys():
-        if key not in courier_fields:
-            return False
-        else:
-            courier_fields.remove(key)
-    if len(courier_fields) > 0:
-        return False
-    # Проверка на валидность значений полей
-    if type(item['courier_id']) != int or item['courier_id'] < 1:
-        return False
-    if type(item['courier_type']) != str or item['courier_type'] not in ['foot', 'bike', 'car']:
-        return False
-    if type(item['regions']) == list:
-        for i in item['regions']:
-            if type(i) != int:
-                return False
-    else:
-        return False
-    if type(item['working_hours']) == list:
-        for i in item['working_hours']: # TODO: Проверка валидности значений данных временных отрезков
-            if type(i) != str or not re.match(r'^[0-9][0-9]:[0-9][0-9]-[0-9][0-9]:[0-9][0-9]$', i):
-                return False
-    else:
-        return False
-
-    return True
-
-def check_order_fields(item): # Проверка валидности полей заказа
-    # Проверка на наличие полей
-    order_fields = ["order_id", "weight", "region", "delivery_hours"]
-    for key in item.keys():
-        if key not in order_fields:
-            return False
-        else:
-            order_fields.remove(key)
-    if len(order_fields) > 0:
-        return False
-    # Проверка на валидность значений полей
-    if type(item['order_id']) != int or item['order_id'] < 1:
-        return False
-    if (type(item['weight']) != float and type(item['weight']) != int) or item['weight'] < 0.01 or item['weight'] > 50:
-        return False
-    if type(item['region']) != int or item['region'] < 1:
-        return False
-    if type(item['delivery_hours']) == list:
-        for i in item['delivery_hours']: # TODO: Проверка валидности значений данных временных отрезков
-            if type(i) != str or not re.match(r'^[0-9][0-9]:[0-9][0-9]-[0-9][0-9]:[0-9][0-9]$', i):
-                return False
-    else:
-        return False
-
-    return True
-
-def to_abs_time(time_str):
-    time = time_str.split(':')
-    return int(time[0]) * 60 + int(time[1])
+# TODO: рефакторинг действий проверки данных!!!
 
 class Controller(Resource):
     def post(self, request_type, assign=""):
         print(request_type, assign)
         if request_type == 'couriers' and assign == 'assign':  # Назначение заказов
-            print('DICK')
             # Проверка id-шника курьера
             try:
                 id = request.json['courier_id']
@@ -85,7 +27,6 @@ class Controller(Resource):
             except ValueError:
                 return "Bad request", 400
 
-            # TODO: проверять наличие курьера по id в БД
             assigned_courier = None
             for courier in couriers:
                 if courier['courier_id'] == id:
@@ -94,6 +35,8 @@ class Controller(Resource):
                     break
             if assigned_courier is None:
                 return "Bad request", 400
+
+            # TODO: Возвращать заказы принадлежащие курьеру обратно в БД
 
             http_200 = {'orders': []}
             max_weight = {'foot': 10, 'bike': 15, 'car': 50}
@@ -104,12 +47,14 @@ class Controller(Resource):
                     assigned_order = None
                     for courier_time in assigned_courier['working_hours']:
                         for delivery_time in order['delivery_hours']:
+                            # Приведение часов работы и доставки к абсолютному формату
                             courier_time_split = courier_time.split('-')
                             delivery_time_split = delivery_time.split('-')
                             courier_time_start = to_abs_time(courier_time_split[0])
                             courier_time_end = to_abs_time(courier_time_split[1])
                             delivery_time_start = to_abs_time(delivery_time_split[0])
                             delivery_time_end = to_abs_time(delivery_time_split[1])
+                            # Проверка пересечения часов работы и доставки
                             if courier_time_start < delivery_time_start < courier_time_end or \
                                 courier_time_start < delivery_time_end < courier_time_end or \
                                 delivery_time_start < courier_time_start < delivery_time_end or \
@@ -119,13 +64,14 @@ class Controller(Resource):
                         if assigned_order is not None:
                             break
                     if assigned_order is not None:
+                        # TODO: Удалять назначенные заказы из БД
                         assigned_courier['orders'].append(assigned_order)
                         http_200['orders'].append({'id': assigned_order['order_id']})
             if len(http_200['orders']) > 0:
                 http_200['assign_time'] = datetime.now().isoformat('T')[:-4] + 'Z'
             return json.dumps(http_200), 200
-
-        elif request_type == 'couriers':  # Добавление курьера
+        # Добавление курьера
+        elif request_type == 'couriers':
             http_201 = {'couriers': []}
             http_400 = {'validation_error': {'couriers': []}}
 
@@ -141,14 +87,14 @@ class Controller(Resource):
             if len(http_400['validation_error']['couriers']) > 0:
                 return json.dumps(http_400), 400
             return json.dumps(http_201), 201
-        elif request_type == 'orders': # Добавление заказа
+        # Добавление заказа
+        elif request_type == 'orders':
             http_201 = {'orders': []}
             http_400 = {'validation_error': {'orders': []}}
 
             for order in request.json['data']:
-                if check_order_fields(order):
-                    # TODO: Проверять уникальность id в БД
-                    orders.append(order) # TODO: Заменить на добавление в БД
+                if check_order_fields(order):  # TODO: Проверять уникальность id в БД
+                    orders.append(order)  # TODO: Заменить на добавление в БД
                     http_201['orders'].append({'id': order['order_id']})
                 else:
                     http_400['validation_error']['orders'].append({'id': order['order_id']})
@@ -171,29 +117,18 @@ class Controller(Resource):
                 return "Bad request", 400
 
             # Проверка на валидность значений полей
-            if 'courier_type' in request.json.keys() and (type(request.json['courier_type']) != str or \
-                                                          request.json['courier_type'] not in ['foot', 'bike', 'car']):
+            if 'courier_type' in request.json.keys() and not is_courier_type_valid(request.json['courier_type']):
                 return "Bad request", 400
-            if 'regions' in request.json.keys():
-                if type(request.json['regions']) == list:
-                    for i in request.json['regions']:
-                        if type(i) != int:
-                            return "Bad request", 400
-                else:
-                    return "Bad request", 400
-            if 'working_hours' in request.json.keys():
-                if type(request.json['working_hours']) == list:
-                    for i in request.json['working_hours']: # TODO: Проверка валидности значений данных временных отрезков
-                        if type(i) != str or not re.match(r'^[0-9][0-9]:[0-9][0-9]-[0-9][0-9]:[0-9][0-9]$', i):
-                            return "Bad request", 400
-                else:
-                    return "Bad request", 400
+            if 'regions' in request.json.keys() and not is_regions_valid(request.json['regions']):
+                return "Bad request", 400
+            if 'working_hours' in request.json.keys() and not is_hours_valid(request.json['working_hours']):
+                return "Bad request", 400
             # Применение изменений
             for courier in couriers:
                 if courier['courier_id'] == id:
                     for key, value in request.json.items():
                         courier[key] = value # TODO: Заменить на изменение данных в БД
-                    # TODO: отмена неподъёмных заказов
+                    # TODO: отмена неподходящих по региону, времени и неподъёмных заказов
                     print(couriers)
                     return courier, 200
             return "Bad request", 400
@@ -202,7 +137,6 @@ class Controller(Resource):
             return "Not found", 404
 
 
-#api.add_resource(Controller, "/ai-quotes", "/ai-quotes/", "/ai-quotes/<int:id>")
 api.add_resource(Controller, "/<string:request_type>", "/<string:request_type>/<int:id>",
                  "/<string:request_type>/<string:assign>")
 if __name__ == '__main__':
