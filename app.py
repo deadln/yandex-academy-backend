@@ -76,21 +76,23 @@ class Controller(Resource):
                 return "Bad request", 400
 
             # Возвращение заказов в коллекцию заказов
-            for order in assigned_courier['orders']:
-                db.insert_document('orders', order)
+            # for order in assigned_courier['orders']:
+            #     db.update_document('orders', {'order_id': order['order_id']}, {'status': 'unassigned'})
             # Очистка списка заказов у курьера
-            db.update_document('couriers', assigned_courier, {'orders': []})
-            assigned_courier = delete_courier_metadata(assigned_courier)
-            assigned_courier['orders'] = []
-
-            http_200 = {'orders': []}
-            max_weight = {'foot': 10, 'bike': 15, 'car': 50}
+            # db.update_document('couriers', assigned_courier, {'orders': []})
+            # assigned_courier = delete_courier_metadata(assigned_courier)
+            # assigned_courier['orders'] = []
             orders = db.find_document('orders', {}, True)
+            assign_time = datetime.now().isoformat('T')[:-4] + 'Z'
+            http_200 = {'orders': list(map(lambda x: {'id': x}, assigned_courier['orders'][:])),
+                        'assign_time': assigned_courier['assign_time']}
+            max_weight = {'foot': 10, 'bike': 15, 'car': 50}
             # Подбор заказов
             for order in orders:
                 # Проверка совпадения региона и веса
                 if order['region'] in assigned_courier['regions'] and \
-                        order['weight'] <= max_weight[assigned_courier['courier_type']]:
+                        order['weight'] <= max_weight[assigned_courier['courier_type']] and \
+                        order['status'] == 'unassigned':
                     assigned_order = None
                     # Перебор всех временных отрезков работы курьера и времени доставки
                     for courier_time in assigned_courier['working_hours']:
@@ -102,26 +104,42 @@ class Controller(Resource):
                             break
                     if assigned_order is not None:
                         # Назначение заказа курьеру
-                        db.delete_document('orders', {'order_id': assigned_order['order_id']})
-                        assigned_courier['orders'].append(assigned_order)
+                        # db.delete_document('orders', {'order_id': assigned_order['order_id']})
+                        db.update_document('orders', {'order_id': assigned_order['order_id']},
+                                           {'status': 'assigned', 'assign_time': assign_time})
+                        # db.update_document('couriers', {'courier_id': assigned_courier['courier_id']},
+                        #                    {'assign_time': assign_time})
+                        assigned_courier['orders'].append(assigned_order['order_id'])
+                        # ВАЖНО!!! Обновление времени назначения заказа у курьера
+                        assigned_courier['assign_time'] = assign_time
                         http_200['orders'].append({'id': assigned_order['order_id']})
-            if len(http_200['orders']) > 0:
-                http_200['assign_time'] = datetime.now().isoformat('T')[:-4] + 'Z'
+                        http_200['assign_time'] = assign_time
+            # if len(http_200['orders']) > 0:
+            #     http_200['assign_time'] = assign_time
             db.update_document('couriers', {'courier_id': assigned_courier['courier_id']}, assigned_courier)
+            if len(http_200['orders']) == 0:
+                del http_200['assign_time']
             return json.dumps(http_200), 200
         # Заказ выполнен
         elif request_type == 'orders' and request_action == 'complete':
+            # Проверка существования курьера
             courier = db.find_document('couriers', {'courier_id': request.json['courier_id']})
             if courier is None:
                 print('bad courier')
                 return "Bad request", 400
+            # Поиск заказа в списке курьера
             completed_order = None
-            for order in courier['orders']:
+            for order_id in courier['orders']:
+                order = db.find_document('orders', {'order_id': order_id})
                 if order['order_id'] == request.json['order_id']:
                     completed_order = order
                     break
             if completed_order is not None:
-                courier['orders'].remove(completed_order)
+                courier['orders'].remove(completed_order['order_id'])
+                courier['complete_time'] = request.json['complete_time']
+                db.update_document('orders', {'order_id': completed_order['order_id']},
+                                   {'status': 'completed', 'complete_time': request.json['complete_time']})
+                # TODO: Добавить временную отметку последнего выполненного заказа
                 db.update_document('couriers', {'courier_id': courier['courier_id']}, courier)
                 return {'order_id': completed_order['order_id']}, 200
             else:
@@ -134,7 +152,10 @@ class Controller(Resource):
 
             for courier in request.json['data']:
                 if check_courier_fields(courier) and is_unique_courier_id(courier):
-                    courier['orders'] = []
+                    courier['orders'] = []  # Список заказов, которые выполняет курьер
+                    courier['delivery_points'] = 0  # "Очки доставки", сумма коэффициентов за выполнение заказов
+                    courier['assign_time'] = ""  # Время назначения последнего заказа
+                    courier['complete_time'] = ""  # Время выполнения последнего заказа
                     # TODO: добавить поля rating и earnings я реализации 6ого обработчика
                     db.insert_document('couriers', courier)
                     http_201['couriers'].append({'id': courier['courier_id']})
@@ -150,6 +171,9 @@ class Controller(Resource):
 
             for order in request.json['data']:
                 if check_order_fields(order) and is_unique_order_id(order):
+                    order['status'] = 'unassigned'  # Статусы заказа: unassigned assigned completed
+                    order['assign_time'] = ''  # Время назначения заказа
+                    order['complete_time'] = ''  # Время выполнения заказа
                     db.insert_document('orders', order)
                     http_201['orders'].append({'id': order['order_id']})
                 else:
@@ -188,28 +212,32 @@ class Controller(Resource):
                 max_weight = {'foot': 10, 'bike': 15, 'car': 50}
                 i = 0
                 while i < len(courier['orders']):
+                    order = db.find_document('orders', {'order_id': courier['orders'][i]})
                     # Проверка веса
-                    if courier['orders'][i]['weight'] > max_weight[courier['courier_type']]:
-                        db.insert_document('orders', courier['orders'][i])
+                    if order['weight'] > max_weight[courier['courier_type']]:
+                        db.update_document('orders', {'order_id': order['order_id']},
+                                           {'status': 'unassigned'})
                         courier['orders'].pop(i)
                         i -= 1
                     # Проверка региона
-                    elif courier['orders'][i]['region'] not in courier['regions']:
-                        db.insert_document('orders', courier['orders'][i])
+                    elif order['region'] not in courier['regions']:
+                        db.update_document('orders', {'order_id': order['order_id']},
+                                           {'status': 'unassigned'})
                         courier['orders'].pop(i)
                         i -= 1
                     # Проверка времени
                     else:
                         flag = False
                         for courier_time in courier['working_hours']:
-                            for delivery_time in courier['orders'][i]['delivery_hours']:
+                            for delivery_time in order['delivery_hours']:
                                 if check_timestamps_intersection(courier_time, delivery_time):
                                     flag = True
                                     break
                             if flag:
                                 break
                         if not flag:
-                            db.insert_document('orders', courier['orders'][i])
+                            db.update_document('orders', {'order_id': order['order_id']},
+                                               {'status': 'unassigned'})
                             courier['orders'].pop(i)
                             i -= 1
                     i += 1
@@ -219,6 +247,11 @@ class Controller(Resource):
             else:
                 return "Bad request", 400
 
+        else:
+            return "Not found", 404
+    def get(self, request_type, id):
+        if request_type == 'couriers':
+            pass
         else:
             return "Not found", 404
 
