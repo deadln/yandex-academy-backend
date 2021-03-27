@@ -151,7 +151,11 @@ class Controller(Resource):
                 # Ведение статистики времени доставки заказов по районам
                 if str(completed_order['region']) not in courier['statistics'].keys():
                     courier['statistics'][str(completed_order['region'])] = []
-                courier['statistics'][str(completed_order['region'])].append(calculate_delivery_time(start_time, end_time))
+                courier['statistics'][str(completed_order['region'])].append(calculate_delivery_time(start_time,
+                                                                                                     end_time))
+                # Добавление очков доставки за выполнение заказа
+                delivery_points_range = {'foot': 2, 'bike': 5, 'car': 9}
+                courier['delivery_points'] += delivery_points_range[courier['courier_type']]
                 db.update_document('orders', {'order_id': completed_order['order_id']},
                                    {'status': 'completed', 'complete_time': request.json['complete_time']})
                 db.update_document('couriers', {'courier_id': courier['courier_id']}, courier)
