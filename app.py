@@ -1,6 +1,8 @@
 from flask import Flask
 from flask import request
 from flask_restful import Api, Resource
+from pyrfc3339 import parse
+
 import json
 from datetime import datetime
 
@@ -57,6 +59,10 @@ def check_timestamps_intersection(courier_time, delivery_time):  # Провер�
             delivery_time_start < courier_time_end < delivery_time_end:
         return True
     return False
+
+
+def calculate_delivery_time(start_time, end_time):
+    return int((parse(end_time) - parse(start_time)).total_seconds())
 
 
 class Controller(Resource):
@@ -136,10 +142,18 @@ class Controller(Resource):
                     break
             if completed_order is not None:
                 courier['orders'].remove(completed_order['order_id'])
+                if courier['complete_time'] == "":
+                    start_time = completed_order['assign_time']
+                else:
+                    start_time = courier['complete_time']
+                end_time = request.json['complete_time']
                 courier['complete_time'] = request.json['complete_time']
+                # Ведение статистики времени доставки заказов по районам
+                if str(completed_order['region']) not in courier['statistics'].keys():
+                    courier['statistics'][str(completed_order['region'])] = []
+                courier['statistics'][str(completed_order['region'])].append(calculate_delivery_time(start_time, end_time))
                 db.update_document('orders', {'order_id': completed_order['order_id']},
                                    {'status': 'completed', 'complete_time': request.json['complete_time']})
-                # TODO: Добавить временную отметку последнего выполненного заказа
                 db.update_document('couriers', {'courier_id': courier['courier_id']}, courier)
                 return {'order_id': completed_order['order_id']}, 200
             else:
@@ -156,6 +170,7 @@ class Controller(Resource):
                     courier['delivery_points'] = 0  # "Очки доставки", сумма коэффициентов за выполнение заказов
                     courier['assign_time'] = ""  # Время назначения последнего заказа
                     courier['complete_time'] = ""  # Время выполнения последнего заказа
+                    courier['statistics'] = {}
                     # TODO: добавить поля rating и earnings я реализации 6ого обработчика
                     db.insert_document('couriers', courier)
                     http_201['couriers'].append({'id': courier['courier_id']})
