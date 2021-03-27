@@ -60,9 +60,9 @@ def check_timestamps_intersection(courier_time, delivery_time):  # Провер�
 
 
 class Controller(Resource):
-    def post(self, request_type, assign=""):  # Обработчик POST реквестов
-        print(request_type, assign)
-        if request_type == 'couriers' and assign == 'assign':  # Назначение заказов
+    def post(self, request_type, request_action=""):  # Обработчик POST реквестов
+        print(request_type, request_action)
+        if request_type == 'couriers' and request_action == 'assign':  # Назначение заказов
             # Проверка id-шника курьера
             try:
                 id = request.json['courier_id']
@@ -109,6 +109,24 @@ class Controller(Resource):
                 http_200['assign_time'] = datetime.now().isoformat('T')[:-4] + 'Z'
             db.update_document('couriers', {'courier_id': assigned_courier['courier_id']}, assigned_courier)
             return json.dumps(http_200), 200
+        # Заказ выполнен
+        elif request_type == 'orders' and request_action == 'complete':
+            courier = db.find_document('couriers', {'courier_id': request.json['courier_id']})
+            if courier is None:
+                print('bad courier')
+                return "Bad request", 400
+            completed_order = None
+            for order in courier['orders']:
+                if order['order_id'] == request.json['order_id']:
+                    completed_order = order
+                    break
+            if completed_order is not None:
+                courier['orders'].remove(completed_order)
+                db.update_document('couriers', {'courier_id': courier['courier_id']}, courier)
+                return {'order_id': completed_order['order_id']}, 200
+            else:
+                print('bad order')
+                return "Bad request", 400
         # Добавление курьера
         elif request_type == 'couriers':
             http_201 = {'couriers': []}
@@ -206,6 +224,6 @@ class Controller(Resource):
 
 
 api.add_resource(Controller, "/<string:request_type>", "/<string:request_type>/<int:id>",
-                 "/<string:request_type>/<string:assign>")
+                 "/<string:request_type>/<string:request_action>")
 if __name__ == '__main__':
     app.run(debug=True)
