@@ -270,9 +270,20 @@ class Controller(Resource):
             return "Not found", 404
     def get(self, request_type, id):
         if request_type == 'couriers':
-            pass
-        else:
-            return "Not found", 404
+            courier = db.find_document('couriers', {'courier_id': id})
+            if courier is not None:
+                avg_delivery_times = []
+                for region, times in courier['statistics'].items():
+                    avg_delivery_times.append(sum(times) / len(times))
+                t = min(avg_delivery_times)
+                rating = (60 * 60 - min(t, 60*60)) / (60*60) * 5
+                summ = courier['delivery_points'] * 500
+                courier = delete_courier_metadata(courier)
+                courier['rating'] = rating
+                courier['earnings'] = summ
+                return courier, 200
+            else:
+                return "Not found", 404
 
 
 api.add_resource(Controller, "/<string:request_type>", "/<string:request_type>/<int:id>",
