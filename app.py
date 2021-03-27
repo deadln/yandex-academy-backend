@@ -81,13 +81,6 @@ class Controller(Resource):
             if assigned_courier is None:
                 return "Bad request", 400
 
-            # Возвращение заказов в коллекцию заказов
-            # for order in assigned_courier['orders']:
-            #     db.update_document('orders', {'order_id': order['order_id']}, {'status': 'unassigned'})
-            # Очистка списка заказов у курьера
-            # db.update_document('couriers', assigned_courier, {'orders': []})
-            # assigned_courier = delete_courier_metadata(assigned_courier)
-            # assigned_courier['orders'] = []
             orders = db.find_document('orders', {}, True)
             assign_time = datetime.now().isoformat('T')[:-4] + 'Z'
             http_200 = {'orders': list(map(lambda x: {'id': x}, assigned_courier['orders'][:])),
@@ -110,18 +103,13 @@ class Controller(Resource):
                             break
                     if assigned_order is not None:
                         # Назначение заказа курьеру
-                        # db.delete_document('orders', {'order_id': assigned_order['order_id']})
                         db.update_document('orders', {'order_id': assigned_order['order_id']},
                                            {'status': 'assigned', 'assign_time': assign_time})
-                        # db.update_document('couriers', {'courier_id': assigned_courier['courier_id']},
-                        #                    {'assign_time': assign_time})
                         assigned_courier['orders'].append(assigned_order['order_id'])
                         # ВАЖНО!!! Обновление времени назначения заказа у курьера
                         assigned_courier['assign_time'] = assign_time
                         http_200['orders'].append({'id': assigned_order['order_id']})
                         http_200['assign_time'] = assign_time
-            # if len(http_200['orders']) > 0:
-            #     http_200['assign_time'] = assign_time
             db.update_document('couriers', {'courier_id': assigned_courier['courier_id']}, assigned_courier)
             if len(http_200['orders']) == 0:
                 del http_200['assign_time']
@@ -268,19 +256,23 @@ class Controller(Resource):
 
         else:
             return "Not found", 404
+
     def get(self, request_type, id):
         if request_type == 'couriers':
             courier = db.find_document('couriers', {'courier_id': id})
             if courier is not None:
-                avg_delivery_times = []
-                for region, times in courier['statistics'].items():
-                    avg_delivery_times.append(sum(times) / len(times))
-                t = min(avg_delivery_times)
-                rating = (60 * 60 - min(t, 60*60)) / (60*60) * 5
-                summ = courier['delivery_points'] * 500
-                courier = delete_courier_metadata(courier)
-                courier['rating'] = rating
-                courier['earnings'] = summ
+                if len(courier['statistics']) > 0:
+                    avg_delivery_times = []
+                    for region, times in courier['statistics'].items():
+                        avg_delivery_times.append(sum(times) / len(times))
+                    t = min(avg_delivery_times)
+                    rating = (60 * 60 - min(t, 60*60)) / (60*60) * 5
+                    summ = courier['delivery_points'] * 500
+                    courier = delete_courier_metadata(courier)
+                    courier['rating'] = rating
+                    courier['earnings'] = summ
+                else:
+                    courier = delete_courier_metadata(courier)
                 return courier, 200
             else:
                 return "Not found", 404
