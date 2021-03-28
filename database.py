@@ -1,5 +1,6 @@
 import pymongo
 
+
 class Database:
     def __init__(self):
         # Create the client
@@ -7,9 +8,6 @@ class Database:
 
         # Connect to our database
         self.db = self.client['SeriesDB']
-
-        # Fetch our series collection
-        #self.couriers_collection = self.db['couriers']
 
     def __new__(cls):
         if not hasattr(cls, 'instance'):
