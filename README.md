@@ -15,7 +15,8 @@
 
 Создайте в системе .list файл для MongoDB:
 
-``echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.4.list``
+``echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse" | 
+sudo tee /etc/apt/sources.list.d/mongodb-org-4.4.list``
 
 Обновите базу данных пакетного менеджера:
 
@@ -24,14 +25,6 @@
 Установите пакеты MongoDB:
 
 ``sudo apt-get install -y mongodb-org``
-
-Запустите базу данных MongoDB:
-
-``sudo systemctl start mongod``
-
-Введите эту команду для того чтобы MognoDB самостоятельно запускалась при перезагрузке сервера:
-
-``sudo systemctl enable mongod``
 
 ## Установка git
 
@@ -74,6 +67,10 @@
 
 # Запуск приложения
 
+Запустите базу данных MongoDB:
+
+``sudo systemctl start mongod``
+
 Находясь в папке HOME, убедитесь что вы активировали виртуальное окружение:
 
 ``source rest-app/bin/activate``
@@ -81,3 +78,56 @@
 Из папки HOME выполните команду:
 
 ``python3 yandex-academy-backend/app.py`` 
+
+# Настройка автоматического возобновления работы REST-API после перезагрузки
+
+Введите эту команду для того чтобы MongoDB самостоятельно запускалась при перезагрузке сервера:
+
+``sudo systemctl enable mongod``
+
+В папке HOME создайте файл <i>start.sh</i> следующего содержания:
+
+````
+#!/bin/bash
+
+# Запуск виртуального окружения
+source /home/entrant/rest-app/bin/activate
+# Запуск REST-API
+until python3 /home/entrant/yandex-academy-backend/app.py; do
+        echo "Server REST-API crashed with exit code $?.  Respawning.." >&2
+        sleep 1
+done
+````
+
+Создайте файл сервиса:
+
+``sudo vim /lib/systemd/system/restapi.service``
+
+И запишите в нём:
+
+````
+[Unit]
+Description=Script for REST-API startup
+After=multi-user.target
+
+[Service]
+Type=idle
+ExecStart=/home/entrant/start.sh
+
+[Install]
+WantedBy=multi-user.target
+````
+
+Дайте права на чтение файла:
+
+``sudo chmod 644 /lib/systemd/system/restapi.service``
+
+Обновите список доступных сервисов systemd:
+
+``sudo systemctl daemon-reload``
+
+И включите автозагрузку сервиса <i>restapi.service</i>
+
+``sudo systemctl enable restapi.service``
+
+Теперь скрипт REST-API будет запускаться после перезагрузки сервера, а также перезапускаться после аварийного завершения
