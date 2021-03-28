@@ -149,7 +149,7 @@ class Controller(Resource):
                 if order['order_id'] == request.json['order_id']:
                     completed_order = order
                     break
-            
+
             if completed_order is not None:
                 # Установка временных рамок выполнения заказа
                 if courier['complete_time'] == "":
@@ -330,4 +330,4 @@ class Controller(Resource):
 api.add_resource(Controller, "/<string:request_type>", "/<string:request_type>/<int:id>",
                  "/<string:request_type>/<string:request_action>")
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=8080)
