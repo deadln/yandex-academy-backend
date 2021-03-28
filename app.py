@@ -56,13 +56,22 @@ def check_timestamps_intersection(courier_time, delivery_time):  # Провер�
     if courier_time_start < delivery_time_start < courier_time_end or \
             courier_time_start < delivery_time_end < courier_time_end or \
             delivery_time_start < courier_time_start < delivery_time_end or \
-            delivery_time_start < courier_time_end < delivery_time_end:
+            delivery_time_start < courier_time_end < delivery_time_end or \
+            courier_time_start == delivery_time_start and courier_time_end == delivery_time_end:
         return True
     return False
 
 
 def calculate_delivery_time(start_time, end_time):
-    return int((parse(end_time) - parse(start_time)).total_seconds())
+    return (parse(end_time) - parse(start_time)).total_seconds()
+
+
+def merge_dicts(dict1, dict2):
+    for key, lst in dict2.items():
+        if key not in dict1.keys():
+            dict1[key] = lst[:]
+        else:
+            dict1[key] = dict1[key] + lst
 
 
 class Controller(Resource):
@@ -85,6 +94,8 @@ class Controller(Resource):
             assign_time = datetime.now().isoformat('T')[:-4] + 'Z'
             http_200 = {'orders': list(map(lambda x: {'id': x}, assigned_courier['orders'][:])),
                         'assign_time': assigned_courier['assign_time']}
+            if len(http_200['orders']) > 0:
+                return json.dumps(http_200), 200
             max_weight = {'foot': 10, 'bike': 15, 'car': 50}
             # Подбор заказов
             for order in orders:
@@ -136,11 +147,15 @@ class Controller(Resource):
                     start_time = courier['complete_time']
                 end_time = request.json['complete_time']
                 courier['complete_time'] = request.json['complete_time']
-                # Ведение статистики времени доставки заказов по районам
-                if str(completed_order['region']) not in courier['statistics'].keys():
-                    courier['statistics'][str(completed_order['region'])] = []
-                courier['statistics'][str(completed_order['region'])].append(calculate_delivery_time(start_time,
+                # Ведение статистики времени доставки заказов по районам для текущего развоза
+                if str(completed_order['region']) not in courier['preliminary_statistics'].keys():
+                    courier['preliminary_statistics'][str(completed_order['region'])] = []
+                courier['preliminary_statistics'][str(completed_order['region'])].append(calculate_delivery_time(start_time,
                                                                                                      end_time))
+                # Закрепление общей статистики при завершении развоза
+                if len(courier['orders']) == 0:
+                    merge_dicts(courier['statistics'], courier['preliminary_statistics'])
+                    courier['preliminary_statistics'] = {}
                 # Добавление очков доставки за выполнение заказа
                 delivery_points_range = {'foot': 2, 'bike': 5, 'car': 9}
                 courier['delivery_points'] += delivery_points_range[courier['courier_type']]
@@ -162,7 +177,8 @@ class Controller(Resource):
                     courier['delivery_points'] = 0  # "Очки доставки", сумма коэффициентов за выполнение заказов
                     courier['assign_time'] = ""  # Время назначения последнего заказа
                     courier['complete_time'] = ""  # Время выполнения последнего заказа
-                    courier['statistics'] = {}
+                    courier['statistics'] = {}  # Статистика заказов с завершёнными развозами
+                    courier['preliminary_statistics'] = {}  # Предварительная статистика текущего развоза
                     # TODO: добавить поля rating и earnings я реализации 6ого обработчика
                     db.insert_document('couriers', courier)
                     http_201['couriers'].append({'id': courier['courier_id']})
@@ -248,6 +264,10 @@ class Controller(Resource):
                             courier['orders'].pop(i)
                             i -= 1
                     i += 1
+                # Закрепление общей статистики при завершении развоза
+                if len(courier['orders']) == 0:
+                    merge_dicts(courier['statistics'], courier['preliminary_statistics'])
+                    courier['preliminary_statistics'] = {}
                 db.update_document('couriers', {'courier_id': id}, courier)
                 courier = delete_courier_metadata(courier)
                 return courier, 200
