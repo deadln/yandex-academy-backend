@@ -330,4 +330,4 @@ class Controller(Resource):
 api.add_resource(Controller, "/<string:request_type>", "/<string:request_type>/<int:id>",
                  "/<string:request_type>/<string:request_action>")
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True)  # Flask по умолчанию способен обрабатывать несколько запросов одновременно
