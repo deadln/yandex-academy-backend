@@ -1,12 +1,12 @@
 import re
 
-def is_courier_type_valid(item):
+def is_courier_type_valid(item):  # Проверка типа курьра на валидность
     if type(item) != str or item not in ['foot', 'bike', 'car']:
         return False
     return True
 
 
-def is_regions_valid(item):
+def is_regions_valid(item):  # Проверка списка регионов на валидность
     if type(item) == list:
         for i in item:
             if type(i) != int or i < 1:
@@ -16,7 +16,7 @@ def is_regions_valid(item):
     return True
 
 
-def is_hours_valid(item):
+def is_hours_valid(item):  # Проверка списка часов работы на валидность
     if type(item) == list:
         for i in item:  # TODO: Проверка валидности значений данных временных отрезков
             if type(i) != str or not re.match(r'^[0-9][0-9]:[0-9][0-9]-[0-9][0-9]:[0-9][0-9]$', i) or \
@@ -29,13 +29,13 @@ def is_hours_valid(item):
     return True
 
 
-def is_weight_valid(item):
+def is_weight_valid(item):  # Проверка веса на валидность
     if type(item) != float and type(item) != int or not 0.01 <= item <= 50:
         return False
     return True
 
 
-def is_region_valid(item):
+def is_region_valid(item):  # Проверка региона на валидность
     if type(item) != int or item < 1:
         return False
     return True
@@ -87,6 +87,6 @@ def check_order_fields(item): # Проверка валидности полей
     return True
 
 
-def to_abs_time(time_str):
+def to_abs_time(time_str):  # Перевод строки времени в минуты
     time = time_str.split(':')
     return int(time[0]) * 60 + int(time[1])
