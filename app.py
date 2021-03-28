@@ -52,6 +52,7 @@ def check_timestamps_intersection(courier_time, delivery_time):  # Провер�
     courier_time_end = to_abs_time(courier_time_split[1])
     delivery_time_start = to_abs_time(delivery_time_split[0])
     delivery_time_end = to_abs_time(delivery_time_split[1])
+
     # Проверка пересечения часов работы и доставки
     if courier_time_start < delivery_time_start < courier_time_end or \
             courier_time_start < delivery_time_end < courier_time_end or \
@@ -62,11 +63,14 @@ def check_timestamps_intersection(courier_time, delivery_time):  # Провер�
     return False
 
 
-def calculate_delivery_time(start_time, end_time):
-    return (parse(end_time) - parse(start_time)).total_seconds()
+def calculate_delivery_time(start_time, end_time):  # Рассчёт времени доставки
+    delivery_time = (parse(end_time) - parse(start_time)).total_seconds()
+    if delivery_time <= 0:
+        raise Exception('non-positive value')
+    return delivery_time
 
 
-def merge_dicts(dict1, dict2):
+def merge_dicts(dict1, dict2):  # Слияние словарей вида <ключ: список>
     for key, lst in dict2.items():
         if key not in dict1.keys():
             dict1[key] = lst[:]
@@ -76,7 +80,6 @@ def merge_dicts(dict1, dict2):
 
 class Controller(Resource):
     def post(self, request_type, request_action=""):  # Обработчик POST реквестов
-        print(request_type, request_action)
         if request_type == 'couriers' and request_action == 'assign':  # Назначение заказов
             # Проверка id-шника курьера
             try:
@@ -86,6 +89,7 @@ class Controller(Resource):
             except ValueError:
                 return "Bad request", 400
 
+            # Поиск курьера в БД
             assigned_courier = db.find_document('couriers', {'courier_id': request.json['courier_id']})
             if assigned_courier is None:
                 return "Bad request", 400
@@ -94,9 +98,12 @@ class Controller(Resource):
             assign_time = datetime.now().isoformat('T')[:-4] + 'Z'
             http_200 = {'orders': list(map(lambda x: {'id': x}, assigned_courier['orders'][:])),
                         'assign_time': assigned_courier['assign_time']}
+
+            # Если развоз не завершён
             if len(http_200['orders']) > 0:
                 return json.dumps(http_200), 200
             max_weight = {'foot': 10, 'bike': 15, 'car': 50}
+
             # Подбор заказов
             for order in orders:
                 # Проверка совпадения региона и веса
@@ -117,21 +124,24 @@ class Controller(Resource):
                         db.update_document('orders', {'order_id': assigned_order['order_id']},
                                            {'status': 'assigned', 'assign_time': assign_time})
                         assigned_courier['orders'].append(assigned_order['order_id'])
-                        # ВАЖНО!!! Обновление времени назначения заказа у курьера
+
+                        # Обновление времени назначения заказа у курьера
                         assigned_courier['assign_time'] = assign_time
                         http_200['orders'].append({'id': assigned_order['order_id']})
                         http_200['assign_time'] = assign_time
+
             db.update_document('couriers', {'courier_id': assigned_courier['courier_id']}, assigned_courier)
             if len(http_200['orders']) == 0:
                 del http_200['assign_time']
             return json.dumps(http_200), 200
+
         # Заказ выполнен
         elif request_type == 'orders' and request_action == 'complete':
             # Проверка существования курьера
             courier = db.find_document('couriers', {'courier_id': request.json['courier_id']})
             if courier is None:
-                print('bad courier')
                 return "Bad request", 400
+
             # Поиск заказа в списке курьера
             completed_order = None
             for order_id in courier['orders']:
@@ -139,23 +149,39 @@ class Controller(Resource):
                 if order['order_id'] == request.json['order_id']:
                     completed_order = order
                     break
+            
             if completed_order is not None:
-                courier['orders'].remove(completed_order['order_id'])
+                # Установка временных рамок выполнения заказа
                 if courier['complete_time'] == "":
                     start_time = completed_order['assign_time']
                 else:
                     start_time = courier['complete_time']
                 end_time = request.json['complete_time']
-                courier['complete_time'] = request.json['complete_time']
+
+                # Вычисление времени доставки
+                try:
+                    delivery_time = calculate_delivery_time(start_time, end_time)
+                except ValueError:
+                    return "Bad request", 400
+                except Exception as exc:
+                    return "Bad request", 400
+
                 # Ведение статистики времени доставки заказов по районам для текущего развоза
                 if str(completed_order['region']) not in courier['preliminary_statistics'].keys():
                     courier['preliminary_statistics'][str(completed_order['region'])] = []
-                courier['preliminary_statistics'][str(completed_order['region'])].append(calculate_delivery_time(start_time,
-                                                                                                     end_time))
+                courier['preliminary_statistics'][str(completed_order['region'])].append(delivery_time)
+
+                # Удаление выполненного заказа
+                courier['orders'].remove(completed_order['order_id'])
+
+                # Установка времени последнего выполненного заказа у курьера
+                courier['complete_time'] = request.json['complete_time']
+
                 # Закрепление общей статистики при завершении развоза
                 if len(courier['orders']) == 0:
                     merge_dicts(courier['statistics'], courier['preliminary_statistics'])
                     courier['preliminary_statistics'] = {}
+
                 # Добавление очков доставки за выполнение заказа
                 delivery_points_range = {'foot': 2, 'bike': 5, 'car': 9}
                 courier['delivery_points'] += delivery_points_range[courier['courier_type']]
@@ -164,7 +190,6 @@ class Controller(Resource):
                 db.update_document('couriers', {'courier_id': courier['courier_id']}, courier)
                 return {'order_id': completed_order['order_id']}, 200
             else:
-                print('bad order')
                 return "Bad request", 400
         # Добавление курьера
         elif request_type == 'couriers':
@@ -179,7 +204,6 @@ class Controller(Resource):
                     courier['complete_time'] = ""  # Время выполнения последнего заказа
                     courier['statistics'] = {}  # Статистика заказов с завершёнными развозами
                     courier['preliminary_statistics'] = {}  # Предварительная статистика текущего развоза
-                    # TODO: добавить поля rating и earnings я реализации 6ого обработчика
                     db.insert_document('couriers', courier)
                     http_201['couriers'].append({'id': courier['courier_id']})
                 else:
@@ -226,6 +250,7 @@ class Controller(Resource):
                 return "Bad request", 400
             if 'working_hours' in request.json.keys() and not is_hours_valid(request.json['working_hours']):
                 return "Bad request", 400
+
             # Применение изменений
             courier = db.find_document('couriers', {'courier_id': id})
             if courier is not None:
@@ -236,18 +261,21 @@ class Controller(Resource):
                 i = 0
                 while i < len(courier['orders']):
                     order = db.find_document('orders', {'order_id': courier['orders'][i]})
+
                     # Проверка веса
                     if order['weight'] > max_weight[courier['courier_type']]:
                         db.update_document('orders', {'order_id': order['order_id']},
                                            {'status': 'unassigned'})
                         courier['orders'].pop(i)
                         i -= 1
+
                     # Проверка региона
                     elif order['region'] not in courier['regions']:
                         db.update_document('orders', {'order_id': order['order_id']},
                                            {'status': 'unassigned'})
                         courier['orders'].pop(i)
                         i -= 1
+
                     # Проверка времени
                     else:
                         flag = False
@@ -281,10 +309,11 @@ class Controller(Resource):
         if request_type == 'couriers':
             courier = db.find_document('couriers', {'courier_id': id})
             if courier is not None:
-                if len(courier['statistics']) > 0:
-                    avg_delivery_times = []
+                if len(courier['statistics']) > 0:  # Если есть завершённые развозы
+                    avg_delivery_times = []  # Средние времена доставки по районам
                     for region, times in courier['statistics'].items():
                         avg_delivery_times.append(sum(times) / len(times))
+                    # Рассчёт рейтинга и заработка
                     t = min(avg_delivery_times)
                     rating = (60 * 60 - min(t, 60*60)) / (60*60) * 5
                     summ = courier['delivery_points'] * 500
