@@ -11,7 +11,7 @@ from database import Database
 
 app = Flask(__name__)
 api = Api(app)
-db = Database()
+db = Database()  # Объект для взаимодействия с базой данных
 
 
 def is_unique_courier_id(item):  # Проверка id курьера на уникальность в БД
@@ -63,10 +63,10 @@ def check_timestamps_intersection(courier_time, delivery_time):  # Провер�
     return False
 
 
-def calculate_delivery_time(start_time, end_time):  # Рассчёт времени доставки
+def calculate_delivery_time(start_time, end_time):  # Расчёт времени доставки
     delivery_time = (parse(end_time) - parse(start_time)).total_seconds()
     if delivery_time <= 0:
-        raise Exception('non-positive value')
+        raise ValueError
     return delivery_time
 
 
@@ -140,7 +140,7 @@ class Controller(Resource):
             # Проверка существования курьера
             courier = db.find_document('couriers', {'courier_id': request.json['courier_id']})
             if courier is None:
-                return "Bad request", 400
+                return {'validation_error': {'invalid_fields': ['courier_id']}}, 400
 
             # Поиск заказа в списке курьера
             completed_order = None
@@ -162,9 +162,7 @@ class Controller(Resource):
                 try:
                     delivery_time = calculate_delivery_time(start_time, end_time)
                 except ValueError:
-                    return "Bad request", 400
-                except Exception as exc:
-                    return "Bad request", 400
+                    return {'validation_error': {'invalid_fields': ['complete_time']}}, 400
 
                 # Ведение статистики времени доставки заказов по районам для текущего развоза
                 if str(completed_order['region']) not in courier['preliminary_statistics'].keys():
@@ -190,14 +188,18 @@ class Controller(Resource):
                 db.update_document('couriers', {'courier_id': courier['courier_id']}, courier)
                 return {'order_id': completed_order['order_id']}, 200
             else:
-                return "Bad request", 400
+                return {'validation_error': {'invalid_fields': ['order_id']}}, 400
         # Добавление курьера
         elif request_type == 'couriers':
             http_201 = {'couriers': []}
             http_400 = {'validation_error': {'couriers': []}}
 
             for courier in request.json['data']:
-                if check_courier_fields(courier) and is_unique_courier_id(courier):
+                invalid_fields = check_courier_fields(courier)  # Получение списка невалидных полей курьера
+                unique_courier_id = is_unique_courier_id(courier)  # Флаг уникальности курьера
+                if not unique_courier_id:
+                    invalid_fields.append('courier_id')
+                if len(invalid_fields) == 0 and unique_courier_id:
                     courier['orders'] = []  # Список заказов, которые выполняет курьер
                     courier['delivery_points'] = 0  # "Очки доставки", сумма коэффициентов за выполнение заказов
                     courier['assign_time'] = ""  # Время назначения последнего заказа
@@ -207,7 +209,8 @@ class Controller(Resource):
                     db.insert_document('couriers', courier)
                     http_201['couriers'].append({'id': courier['courier_id']})
                 else:
-                    http_400['validation_error']['couriers'].append({'id': courier['courier_id']})
+                    http_400['validation_error']['couriers'].append({'id': courier['courier_id'],
+                                                                     'invalid_fields': invalid_fields})
             if len(http_400['validation_error']['couriers']) > 0:
                 return json.dumps(http_400), 400
             return json.dumps(http_201), 201
@@ -217,14 +220,19 @@ class Controller(Resource):
             http_400 = {'validation_error': {'orders': []}}
 
             for order in request.json['data']:
-                if check_order_fields(order) and is_unique_order_id(order):
+                invalid_fields = check_order_fields(order)  # Получение списка невалидных полей заказа
+                unique_order_id = is_unique_order_id(order)  # Флаг уникальности заказа
+                if not unique_order_id:
+                    invalid_fields.append('order_id')
+                if len(invalid_fields) == 0 and unique_order_id:
                     order['status'] = 'unassigned'  # Статусы заказа: unassigned assigned completed
                     order['assign_time'] = ''  # Время назначения заказа
                     order['complete_time'] = ''  # Время выполнения заказа
                     db.insert_document('orders', order)
                     http_201['orders'].append({'id': order['order_id']})
                 else:
-                    http_400['validation_error']['orders'].append({'id': order['order_id']})
+                    http_400['validation_error']['orders'].append({'id': order['order_id'],
+                                                                   'invalid_fields': invalid_fields})
             if len(http_400['validation_error']['orders']) > 0:
                 return json.dumps(http_400), 400
             return json.dumps(http_201), 201
@@ -234,22 +242,28 @@ class Controller(Resource):
     def patch(self, request_type, id):  # Обработчик PATCH реквестов
         if request_type == 'couriers':
             # Проверка полей реквеста
+            invalid_fields = []
             courier_fields = ["courier_type", "regions", "working_hours"]
             for key, value in request.json.items():
                 if key not in courier_fields:
-                    return "Bad request", 400
+                    invalid_fields.append(key)
                 else:
                     courier_fields.remove(key)
             if len(courier_fields) == 3:
-                return "Bad request", 400
+                return {'validation_error': {'invalid_fields': courier_fields + invalid_fields}}, 400
+                # return "Bad request", 400
 
             # Проверка на валидность значений полей
             if 'courier_type' in request.json.keys() and not is_courier_type_valid(request.json['courier_type']):
-                return "Bad request", 400
+                invalid_fields.append('courier_type')
             if 'regions' in request.json.keys() and not is_regions_valid(request.json['regions']):
-                return "Bad request", 400
+                invalid_fields.append('regions')
             if 'working_hours' in request.json.keys() and not is_hours_valid(request.json['working_hours']):
-                return "Bad request", 400
+                invalid_fields.append('working_hours')
+
+            # Если нашлись невалидные поля
+            if len(invalid_fields) > 0:
+                return {'validation_error': {'invalid_fields': invalid_fields}}, 400
 
             # Применение изменений
             courier = db.find_document('couriers', {'courier_id': id})
@@ -313,7 +327,7 @@ class Controller(Resource):
                     avg_delivery_times = []  # Средние времена доставки по районам
                     for region, times in courier['statistics'].items():
                         avg_delivery_times.append(sum(times) / len(times))
-                    # Рассчёт рейтинга и заработка
+                    # Расчёт рейтинга и заработка
                     t = min(avg_delivery_times)
                     rating = (60 * 60 - min(t, 60*60)) / (60*60) * 5
                     summ = courier['delivery_points'] * 500
