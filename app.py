@@ -6,6 +6,7 @@ from pyrfc3339 import parse
 import json
 from datetime import datetime
 import sys
+import os
 
 from validation_functions import *
 from database import Database
@@ -13,7 +14,21 @@ from database import Database
 app = Flask(__name__)
 api = Api(app)
 db = Database()  # Объект для взаимодействия с базой данных
-
+testing = 'false'
+# print('app.py')
+# try:
+#     with open('test_status.txt', 'r') as f:
+#         testing = f.read()
+#     print('TESTING', testing)
+#     print(os.getcwd())
+#     if testing == 'true':
+#         os.system('rm test_status.txt')
+#         db.use_database('test')
+#         db.clear_database()
+#     else:
+#         db.use_database('SeriesDB')
+# except FileNotFoundError:
+#     db.use_database('SeriesDB')
 
 def is_unique_courier_id(item):  # Проверка id курьера на уникальность в БД
     if db.find_document('couriers', {'courier_id': item['courier_id']}) is not None:
@@ -194,7 +209,7 @@ class Controller(Resource):
         elif request_type == 'couriers':
             http_201 = {'couriers': []}
             http_400 = {'validation_error': {'couriers': []}}
-
+            
             for courier in request.json['data']:
                 invalid_fields = check_courier_fields(courier)  # Получение списка невалидных полей курьера
                 unique_courier_id = is_unique_courier_id(courier)  # Флаг уникальности курьера
@@ -340,9 +355,34 @@ class Controller(Resource):
                 return courier, 200
             else:
                 return "Not found", 404
+        else:
+            return "Not found", 404
+
+    def delete(self):
+        if testing == 'true':
+            db.clear_database()
+            return "Database cleared", 200
+        return "Not found", 404
+
+    def options(self, request_type):
+        if request_type == 'testing':
+            global testing
+            try:
+                with open('test_status.txt', 'r') as f:
+                    testing = f.read()
+                print('TESTING', testing)
+                print(os.getcwd())
+                if testing == 'true':
+                    os.remove('test_status.txt')
+                    db.use_database('test')
+                    db.clear_database()
+                else:
+                    db.use_database('SeriesDB')
+            except FileNotFoundError:
+                db.use_database('SeriesDB')
 
 
-api.add_resource(Controller, "/<string:request_type>", "/<string:request_type>/<int:id>",
+api.add_resource(Controller, "/", "/<string:request_type>", "/<string:request_type>/<int:id>",
                  "/<string:request_type>/<string:request_action>")
 if __name__ == '__main__':
     ip = '127.0.0.1'

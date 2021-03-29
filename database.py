@@ -7,12 +7,15 @@ class Database:
         self.client = pymongo.MongoClient('localhost', 27017)
 
         # Connect to our database
-        self.db = self.client['SeriesDB']
+        self.db = self.client['Series_DB']
 
     def __new__(cls):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Database, cls).__new__(cls)
         return cls.instance
+
+    def use_database(self, db_name):
+        self.db = self.client[db_name]
 
     def insert_document(self, collection_name, data):
         collection = self.db[collection_name]
@@ -43,3 +46,10 @@ class Database:
         """ Function to delete a single document from a collection.
         """
         collection.delete_one(query)
+
+    def clear_database(self):
+        couriers_collection = self.db['couriers']
+        orders_collection = self.db['orders']
+        couriers_collection.delete_many({})
+        orders_collection.delete_many({})
+
