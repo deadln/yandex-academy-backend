@@ -5,6 +5,7 @@ from pyrfc3339 import parse
 
 import json
 from datetime import datetime
+import sys
 
 from validation_functions import *
 from database import Database
@@ -344,4 +345,10 @@ class Controller(Resource):
 api.add_resource(Controller, "/<string:request_type>", "/<string:request_type>/<int:id>",
                  "/<string:request_type>/<string:request_action>")
 if __name__ == '__main__':
-    app.run(debug=True)  # Flask по умолчанию способен обрабатывать несколько запросов одновременно
+    ip = '127.0.0.1'
+    port = '5000'
+    if len(sys.argv) >= 2:
+        ip = sys.argv[1]
+    if len(sys.argv) == 3:
+        port = sys.argv[2]
+    app.run(host=ip, port=port)  # Flask по умолчанию способен обрабатывать несколько запросов одновременно
