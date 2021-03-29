@@ -57,10 +57,6 @@ sudo tee /etc/apt/sources.list.d/mongodb-org-4.4.list``
 
 ``cd yandex-academy-backend``
 
-Переключите в проекте ветку на <i>production</i>:
-
-``git checkout production``
-
 Установите необходимые зависимости в виртуальное окружение:
 
 ``pip install -r requirements.txt``
@@ -77,7 +73,21 @@ sudo tee /etc/apt/sources.list.d/mongodb-org-4.4.list``
 
 Из папки HOME выполните команду:
 
-``python3 yandex-academy-backend/app.py`` 
+``python3 yandex-academy-backend/app.py [адрес хоста] [номер порта]`` 
+
+Для того чтобы REST-API был доступен для запросов извне запустите вот так:
+
+``python3 yandex-academy-backend/app.py 0.0.0.0 8080`` 
+
+# Тестирование REST-API
+
+Чтобы запустить тесты, вначале перейдите в папку с приложением:
+
+``cd ~/yandex-academy-backend``
+
+А затем выполните:
+
+``python3 -m unittest tests.py``
 
 # Настройка автоматического возобновления работы REST-API после перезагрузки
 
@@ -93,7 +103,7 @@ sudo tee /etc/apt/sources.list.d/mongodb-org-4.4.list``
 # Запуск виртуального окружения
 source /home/entrant/rest-app/bin/activate
 # Запуск REST-API
-until python3 /home/entrant/yandex-academy-backend/app.py; do
+until python3 /home/entrant/yandex-academy-backend/app.py 0.0.0.0 8080; do
         echo "Server REST-API crashed with exit code $?.  Respawning.." >&2
         sleep 1
 done

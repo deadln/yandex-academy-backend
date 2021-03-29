@@ -5,9 +5,11 @@ from unittest import TestCase
 
 class TestIntegrations(TestCase):
     def setUp(self):
+        # Создание файла для активации режима тестирования (ещё раз простите)
         with open('test_status.txt', 'w') as f:
             f.write('true')
         self.app = app.test_client()
+        # Отправка запроса для активации режима тестирования
         self.app.options('testing')
 
     def test_post_courier(self):  # Тест добавления курьеров
