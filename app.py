@@ -3,7 +3,6 @@ from flask import request
 from flask_restful import Api, Resource
 from pyrfc3339 import parse
 
-import json
 from datetime import datetime
 import sys
 import os
@@ -14,21 +13,7 @@ from database import Database
 app = Flask(__name__)
 api = Api(app)
 db = Database()  # Объект для взаимодействия с базой данных
-testing = 'false'
-# print('app.py')
-# try:
-#     with open('test_status.txt', 'r') as f:
-#         testing = f.read()
-#     print('TESTING', testing)
-#     print(os.getcwd())
-#     if testing == 'true':
-#         os.system('rm test_status.txt')
-#         db.use_database('test')
-#         db.clear_database()
-#     else:
-#         db.use_database('SeriesDB')
-# except FileNotFoundError:
-#     db.use_database('SeriesDB')
+testing = 'false'  # Флаг режима тестирования
 
 def is_unique_courier_id(item):  # Проверка id курьера на уникальность в БД
     if db.find_document('couriers', {'courier_id': item['courier_id']}) is not None:
@@ -117,7 +102,7 @@ class Controller(Resource):
 
             # Если развоз не завершён
             if len(http_200['orders']) > 0:
-                return json.dumps(http_200), 200
+                return http_200, 200
             max_weight = {'foot': 10, 'bike': 15, 'car': 50}
 
             # Подбор заказов
@@ -149,7 +134,7 @@ class Controller(Resource):
             db.update_document('couriers', {'courier_id': assigned_courier['courier_id']}, assigned_courier)
             if len(http_200['orders']) == 0:
                 del http_200['assign_time']
-            return json.dumps(http_200), 200
+            return http_200, 200
 
         # Заказ выполнен
         elif request_type == 'orders' and request_action == 'complete':
@@ -209,7 +194,7 @@ class Controller(Resource):
         elif request_type == 'couriers':
             http_201 = {'couriers': []}
             http_400 = {'validation_error': {'couriers': []}}
-            
+
             for courier in request.json['data']:
                 invalid_fields = check_courier_fields(courier)  # Получение списка невалидных полей курьера
                 unique_courier_id = is_unique_courier_id(courier)  # Флаг уникальности курьера
@@ -228,8 +213,8 @@ class Controller(Resource):
                     http_400['validation_error']['couriers'].append({'id': courier['courier_id'],
                                                                      'invalid_fields': invalid_fields})
             if len(http_400['validation_error']['couriers']) > 0:
-                return json.dumps(http_400), 400
-            return json.dumps(http_201), 201
+                return http_400, 400
+            return http_201, 201
         # Добавление заказа
         elif request_type == 'orders':
             http_201 = {'orders': []}
@@ -250,8 +235,8 @@ class Controller(Resource):
                     http_400['validation_error']['orders'].append({'id': order['order_id'],
                                                                    'invalid_fields': invalid_fields})
             if len(http_400['validation_error']['orders']) > 0:
-                return json.dumps(http_400), 400
-            return json.dumps(http_201), 201
+                return http_400, 400
+            return http_201, 201
         else:
             return "Not found", 404
 
@@ -335,7 +320,7 @@ class Controller(Resource):
         else:
             return "Not found", 404
 
-    def get(self, request_type, id):
+    def get(self, request_type, id):  # Обработчик GET реквестов
         if request_type == 'couriers':
             courier = db.find_document('couriers', {'courier_id': id})
             if courier is not None:
@@ -358,21 +343,23 @@ class Controller(Resource):
         else:
             return "Not found", 404
 
-    def delete(self):
+    def delete(self):  # Обработчик служебного реквеста для очистки БД. Работает только в тестовом режиме
         if testing == 'true':
             db.clear_database()
             return "Database cleared", 200
         return "Not found", 404
 
-    def options(self, request_type):
+    def options(self, request_type):  # Обработчик служебного реквеста для активации тестового режима
         if request_type == 'testing':
             global testing
             try:
+                # Чтение файла для обнаружения запроса на включение тестового режима
+                # Простите, но более адекватного способа сообщить приложению о том что нужно включить тестовый режим
+                # я не нашёл :(
                 with open('test_status.txt', 'r') as f:
                     testing = f.read()
-                print('TESTING', testing)
-                print(os.getcwd())
                 if testing == 'true':
+                    # Переключение базы данных на тестовую
                     os.remove('test_status.txt')
                     db.use_database('test')
                     db.clear_database()
@@ -380,6 +367,7 @@ class Controller(Resource):
                     db.use_database('SeriesDB')
             except FileNotFoundError:
                 db.use_database('SeriesDB')
+        return "Not found", 404
 
 
 api.add_resource(Controller, "/", "/<string:request_type>", "/<string:request_type>/<int:id>",

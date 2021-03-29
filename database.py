@@ -7,7 +7,7 @@ class Database:
         self.client = pymongo.MongoClient('localhost', 27017)
 
         # Connect to our database
-        self.db = self.client['Series_DB']
+        self.db = self.client['SeriesDB']
 
     def __new__(cls):
         if not hasattr(cls, 'instance'):
